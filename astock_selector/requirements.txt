@@ -1,0 +1,39 @@
+# 核心依赖
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+
+# 数据源
+tushare>=1.2.89
+akshare>=1.12.0
+
+# 技术分析
+pandas-ta>=0.3.14b
+# TA-Lib 需要单独安装，如遇到问题可使用 pandas-ta 替代
+
+# 数据库
+sqlalchemy>=2.0.0
+
+# 任务调度
+apscheduler>=3.10.0
+
+# Web 框架（可选）
+fastapi>=0.104.0
+uvicorn>=0.24.0
+streamlit>=1.28.0
+
+# 报告生成
+jinja2>=3.1.2
+markdown>=3.5.0
+
+# 工具库
+python-dotenv>=1.0.0
+click>=8.1.0
+rich>=13.6.0
+
+# 交易模块（持仓分析）
+easytrader>=0.23.0
+pywinauto>=0.6.8  # Windows GUI 自动化，用于同花顺
+
+# 测试
+pytest>=7.4.0
