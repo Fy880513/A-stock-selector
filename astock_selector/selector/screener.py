@@ -15,6 +15,7 @@ from factors.capital_flow import calculate_capital_flow_score
 from factors.hotspots import calculate_hotspot_score
 from selector.scorer import create_scorer, StockScore
 from selector.portfolio import create_portfolio_manager
+from ml_models import get_ml_score
 from utils.logger import get_logger
 from utils.helpers import is_st_stock, is_new_stock
 
@@ -191,6 +192,35 @@ class StockScreener:
             is_main_theme=False,
         )
 
+    def calculate_ml_score(
+        self,
+        ts_code: str,
+        price_data: pd.DataFrame,
+        fundamental_data: Dict[str, float],
+    ) -> Dict[str, float]:
+        """计算机器学习预测得分"""
+        try:
+            # 准备基本面数据
+            fund_data = {
+                "pe_ttm": fundamental_data.get("pe_ttm"),
+                "pb": fundamental_data.get("pb"),
+                "roe": fundamental_data.get("roe"),
+                "revenue_growth": fundamental_data.get("revenue_growth"),
+                "profit_growth": fundamental_data.get("net_profit_growth"),
+            }
+            
+            # 准备资金流向数据（简化版）
+            capital_data = {
+                "net_inflow": 0,
+                "north_hold_change": 0,
+                "large_order_ratio": 0,
+            }
+            
+            return get_ml_score(price_data, fund_data, capital_data)
+        except Exception as e:
+            logger.error(f"计算ML得分失败: {e}")
+            return {"ml_score": 50.0, "ml_confidence": "中"}
+
     def select(
         self,
         trade_date: Optional[str] = None,
@@ -243,6 +273,7 @@ class StockScreener:
             technical_data = self.calculate_technical(ts_code, price_data)
             capital_flow_data = self.calculate_capital_flow(ts_code)
             hotspot_data = self.calculate_hotspot(ts_code, stock_name)
+            ml_data = self.calculate_ml_score(ts_code, price_data, fundamental_data)
 
             # 创建得分对象
             stock_score = self.scorer.create_stock_score(
@@ -252,6 +283,7 @@ class StockScreener:
                 technical_data=technical_data,
                 capital_flow_data=capital_flow_data,
                 hotspot_data=hotspot_data,
+                ml_data=ml_data,
             )
 
             all_scores.append(stock_score)
@@ -336,6 +368,8 @@ class StockScreener:
                 "technical_score": stock.technical_score,
                 "capital_flow_score": stock.capital_flow_score,
                 "hotspot_score": stock.hotspot_score,
+                "ml_score": stock.ml_score,
+                "ml_confidence": stock.ml_confidence,
                 "signal_count": stock.signal_count,
             }
 

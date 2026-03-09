@@ -35,5 +35,10 @@ rich>=13.6.0
 easytrader>=0.23.0
 pywinauto>=0.6.8  # Windows GUI 自动化，用于同花顺
 
+# 增强版舆情分析（BERT 深度学习）
+transformers>=4.35.0
+torch>=2.0.0
+aiohttp>=3.9.0
+
 # 测试
 pytest>=7.4.0

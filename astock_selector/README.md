@@ -70,6 +70,7 @@ python main.py --position --suggestion
 - **涨停分析**：封单强度、连板概率预测
 - **龙虎榜席位**：机构/游资/北向资金追踪
 - **ML 选股**：LightGBM/RandomForest 机器学习模型
+- **舆情分析**：BERT 深度学习情绪分析（增强版）
 
 ### 交易辅助
 - **智能止损止盈**：自动计算止损/止盈位
@@ -94,7 +95,8 @@ astock_selector/
 │   ├── fundamentals.py  # 基本面因子
 │   ├── technicals.py    # 技术面因子
 │   ├── capital_flow.py  # 资金面因子
-│   └── hotspots.py      # 热点因子
+│   ├── hotspots.py      # 热点因子
+│   └── news_sentiment.py  # 舆情情绪分析（增强版）
 ├── strategies/        # 策略层
 │   ├── dragon_strategy.py   # 龙头战法
 │   ├── limit_up.py          # 涨停分析
@@ -122,6 +124,7 @@ astock_selector/
 | [STRATEGY_MODES.md](STRATEGY_MODES.md) | 策略模式详解 |
 | [DRAGON_STRATEGY.md](DRAGON_STRATEGY.md) | 龙头战法指南 |
 | [POSITION_MODULE.md](POSITION_MODULE.md) | 持仓分析模块 |
+| [SENTIMENT_ANALYSIS.md](SENTIMENT_ANALYSIS.md) | 舆情情绪分析（增强版） |
 
 ---
 
@@ -147,7 +150,8 @@ astock_selector/
 
 ## 📝 开发计划
 
-- [ ] 实时新闻舆情抓取（NLP 分析）
+- [x] 实时新闻舆情抓取（NLP 分析）
+- [x] BERT 深度学习情绪分析
 - [ ] 更多 ML 模型（XGBoost/CatBoost/神经网络）
 - [ ] Web 界面优化
 - [ ] 策略回测优化器

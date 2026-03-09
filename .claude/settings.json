@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git add OPTIMIZATION_SUMMARY.md)",
+      "Bash(git remote add origin https://github.com/Fy880513/A-stock-selector.git)",
+      "Bash(git branch -M main)",
+      "Bash(git push -u origin main)",
+      "Bash(git add main.py position/risk_monitor.py selector/scorer.py)",
+      "Bash(git push origin main)"
     ]
   }
 }

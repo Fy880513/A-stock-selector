@@ -3,10 +3,13 @@
 """
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# 加载环境变量
-load_dotenv()
+# 尝试加载环境变量
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # 没有 dotenv 模块也能运行
 
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent.parent

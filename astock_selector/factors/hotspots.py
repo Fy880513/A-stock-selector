@@ -3,6 +3,10 @@
 
 权重：15%
 包含板块热度、新闻事件、概念题材、涨停梯队等因子
+
+增强功能:
+- 支持 BERT 深度学习情绪分析 (可选)
+- 多源新闻聚合集成
 """
 import pandas as pd
 import numpy as np
@@ -13,6 +17,20 @@ from utils.logger import get_logger
 from utils.helpers import normalize_score
 
 logger = get_logger(__name__)
+
+# 延迟导入，避免不必要的依赖
+try:
+    from factors.news_sentiment import (
+        EnhancedSentimentAnalyzer,
+        create_sentiment_analyzer,
+        analyze_stock
+    )
+    BERT_AVAILABLE = True
+except ImportError:
+    BERT_AVAILABLE = False
+    EnhancedSentimentAnalyzer = None
+    create_sentiment_analyzer = None
+    analyze_stock = None
 
 
 # 热门概念关键词（需要根据市场动态更新）
@@ -38,7 +56,19 @@ HOT_CONCEPT_KEYWORDS = {
 class SentimentAnalyzer:
     """舆情情绪分析器"""
 
-    def __init__(self):
+    def __init__(self, use_enhanced: bool = False, use_gpu: bool = False):
+        self.use_enhanced = use_enhanced
+        self.use_gpu = use_gpu
+
+        # 如果启用增强版且可用，初始化 BERT 分析器
+        if use_enhanced and BERT_AVAILABLE:
+            self.enhanced_analyzer = create_sentiment_analyzer(
+                use_bert=True,
+                use_gpu=use_gpu
+            )
+        else:
+            self.enhanced_analyzer = None
+
         # 正面情绪词
         self.positive_words = {
             "利好", "增长", "突破", "创新", "签约", "中标", "合作", "重组",
@@ -57,16 +87,40 @@ class SentimentAnalyzer:
         self.positive_weight = 1.0
         self.negative_weight = 1.2  # 负面情绪影响更大
 
-    def analyze_news_sentiment(self, news_list: List[Dict]) -> Dict:
+    def analyze_news_sentiment(self, news_list: List[Dict], ts_code: Optional[str] = None) -> Dict:
         """
         分析新闻情绪
 
         Args:
             news_list: 新闻列表 [{"title": "", "content": "", "source": ""}]
+            ts_code: 股票代码（可选），用于增强版分析
 
         Returns:
             dict: 情绪分析结果
         """
+        # 如果启用增强版且可用，使用 BERT 分析
+        if self.use_enhanced and self.enhanced_analyzer and ts_code:
+            try:
+                # 使用增强版分析器分析个股情绪
+                result = self.enhanced_analyzer.analyze_stock_sentiment(
+                    ts_code=ts_code,
+                    news_limit=len(news_list) if news_list else 10
+                )
+                return {
+                    "news_count": result.get("news_count", 0),
+                    "positive_count": int(result.get("positive_ratio", 0.5) * result.get("news_count", 0)),
+                    "negative_count": int((1 - result.get("positive_ratio", 0.5)) * result.get("news_count", 0) * 0.3),
+                    "neutral_count": int((1 - result.get("positive_ratio", 0.5)) * result.get("news_count", 0) * 0.7),
+                    "positive_ratio": result.get("positive_ratio", 0.5),
+                    "sentiment_score": result.get("sentiment_score", 50.0),
+                    "sentiment_level": result.get("sentiment_level", "中性"),
+                    "trend": result.get("trend", "稳定"),
+                }
+            except Exception as e:
+                logger.warning(f"增强版舆情分析失败，降级到基础分析：{e}")
+                # 降级到基础分析
+
+        # 基础版分析（原有逻辑）
         if not news_list:
             return {
                 "news_count": 0,
@@ -248,9 +302,12 @@ class SentimentAnalyzer:
 class HotspotFactor:
     """热点分析因子计算器"""
 
-    def __init__(self):
+    def __init__(self, use_enhanced: bool = False, use_gpu: bool = False):
         self.concept_keywords = HOT_CONCEPT_KEYWORDS
-        self.sentiment_analyzer = SentimentAnalyzer()
+        self.sentiment_analyzer = SentimentAnalyzer(
+            use_enhanced=use_enhanced,
+            use_gpu=use_gpu
+        )
 
     def score_industry_heat(
         self,
@@ -591,3 +648,91 @@ def calculate_hotspot_score(
         policy_level,
         is_main_theme,
     )
+
+
+def calculate_hotspot_score_enhanced(
+    ts_code: str,
+    industry_change_1d: float = 0,
+    industry_change_5d: float = 0,
+    industry_rank_5d: int = 0,
+    total_industries: int = 30,
+    concept_changes: Optional[List[float]] = None,
+    limit_up_count: int = 0,
+    limit_up_ratio: float = 0,
+    consecutive_limit_up: int = 0,
+    has_policy_news: bool = False,
+    policy_level: str = "local",
+    is_main_theme: bool = False,
+    use_bert: bool = True,
+    use_gpu: bool = False,
+) -> Dict[str, float]:
+    """
+    计算热点综合得分（增强版，使用 BERT 舆情分析）
+
+    Args:
+        ts_code: 股票代码
+        use_bert: 是否使用 BERT 深度学习模型
+        use_gpu: 是否使用 GPU 加速
+
+    Returns:
+        dict: 各维度得分和综合得分
+    """
+    factor = HotspotFactor(use_enhanced=use_bert, use_gpu=use_gpu)
+
+    # 如果使用增强版，直接通过股票代码获取舆情得分
+    sentiment_result = None
+    news_count = 0
+    news_positive_ratio = 0.5
+
+    if use_bert and BERT_AVAILABLE:
+        try:
+            sentiment_result = analyze_stock(ts_code, use_bert=True)
+            news_count = sentiment_result.get("news_count", 0)
+            news_positive_ratio = sentiment_result.get("positive_ratio", 0.5)
+        except Exception as e:
+            logger.warning(f"BERT 舆情分析失败：{e}，使用基础分析")
+
+    return factor.calculate_composite_score(
+        industry_change_1d,
+        industry_change_5d,
+        industry_rank_5d,
+        total_industries,
+        concept_changes,
+        limit_up_count,
+        limit_up_ratio,
+        consecutive_limit_up,
+        news_count,
+        news_positive_ratio,
+        has_policy_news,
+        policy_level,
+        is_main_theme,
+        sentiment_score=sentiment_result.get("sentiment_score") if sentiment_result else None,
+    )
+
+
+def analyze_stock_sentiment_enhanced(
+    ts_code: str,
+    use_bert: bool = True,
+    use_gpu: bool = False,
+) -> Dict:
+    """
+    直接使用增强版舆情分析器分析个股情绪
+
+    Args:
+        ts_code: 股票代码
+        use_bert: 是否使用 BERT 深度学习模型
+        use_gpu: 是否使用 GPU 加速
+
+    Returns:
+        dict: 情绪分析结果
+    """
+    if not BERT_AVAILABLE:
+        logger.warning("增强版舆情分析模块不可用，请安装依赖：pip install transformers torch aiohttp")
+        return {"error": "BERT module not available"}
+
+    try:
+        analyzer = create_sentiment_analyzer(use_bert=use_bert, use_gpu=use_gpu)
+        return analyzer.analyze_stock_sentiment(ts_code=ts_code)
+    except Exception as e:
+        logger.error(f"舆情分析失败：{e}")
+        return {"error": str(e)}

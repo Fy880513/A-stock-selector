@@ -454,6 +454,62 @@ def show_seat_analysis():
     print(f"\n{'='*60}")
 
 
+def show_sentiment_analysis(ts_code: str, use_bert: bool = False, use_gpu: bool = False):
+    """显示个股舆情情绪分析"""
+    print(f"\n{'='*60}")
+    print("A 股选股系统 - 舆情情绪分析")
+    print(f"{'='*60}")
+    print(f"股票代码：{ts_code}")
+    print(f"分析模式：{'BERT 深度学习' if use_bert else '关键词分析'}")
+    if use_gpu:
+        print(f"加速方式：GPU 加速")
+    print(f"{'='*60}\n")
+
+    from factors.hotspots import analyze_stock_sentiment_enhanced, BERT_AVAILABLE
+
+    if not BERT_AVAILABLE and use_bert:
+        print("⚠️  BERT 模块不可用，请安装依赖：")
+        print("   pip install transformers torch aiohttp")
+        print()
+
+    result = analyze_stock_sentiment_enhanced(
+        ts_code=ts_code,
+        use_bert=use_bert,
+        use_gpu=use_gpu
+    )
+
+    if "error" in result:
+        print(f"❌ 分析失败：{result['error']}")
+        return
+
+    print(f"【舆情得分】{result.get('sentiment_score', 0):.1f} / 100")
+    print(f"【情绪等级】{result.get('sentiment_level', 'N/A')}")
+    print(f"【情绪趋势】{result.get('trend', 'N/A')}")
+    print()
+    print(f"【新闻统计】")
+    print(f"  新闻总数：{result.get('news_count', 0)}")
+    print(f"  正面比例：{result.get('positive_ratio', 0):.1%}")
+    print(f"  正面新闻：{result.get('positive_count', 0)}")
+    print(f"  中性新闻：{result.get('neutral_count', 0)}")
+    print(f"  负面新闻：{result.get('negative_count', 0)}")
+    print()
+
+    # 显示情绪等级说明
+    sentiment_score = result.get('sentiment_score', 50)
+    if sentiment_score >= 80:
+        print("📈 情绪强烈看好，利好消息主导")
+    elif sentiment_score >= 60:
+        print("📈 情绪看好，正面消息较多")
+    elif sentiment_score >= 40:
+        print("➖ 情绪中性，消息面平淡")
+    elif sentiment_score >= 20:
+        print("📉 情绪看空，负面消息较多")
+    else:
+        print("📉 情绪强烈看空，重大利空主导")
+
+    print(f"\n{'='*60}")
+
+
 def select_stocks_with_strategy(
     date: str,
     top_n: int,
@@ -815,6 +871,24 @@ def main():
         help="显示龙虎榜席位分析",
     )
 
+    # 舆情分析参数
+    parser.add_argument(
+        "--sentiment",
+        type=str,
+        metavar="CODE",
+        help="分析个股舆情情绪（传入股票代码）",
+    )
+    parser.add_argument(
+        "--sentiment-bert",
+        action="store_true",
+        help="使用 BERT 深度学习模型进行舆情分析（与 --sentiment 联用）",
+    )
+    parser.add_argument(
+        "--sentiment-gpu",
+        action="store_true",
+        help="使用 GPU 加速 BERT 模型（与 --sentiment-bert 联用）",
+    )
+
     # 策略选择参数
     parser.add_argument(
         "--strategy",
@@ -862,6 +936,12 @@ def main():
             end_date,
             args.capital,
             args.holding_period,
+        )
+    elif args.sentiment:
+        show_sentiment_analysis(
+            args.sentiment,
+            use_bert=args.sentiment_bert,
+            use_gpu=args.sentiment_gpu
         )
     elif args.limit_up_detail:
         show_limit_up_detail(args.limit_up_detail)

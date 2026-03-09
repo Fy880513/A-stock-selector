@@ -29,6 +29,17 @@ class BacktestMetrics:
     max_drawdown: float  # 最大回撤
     sharpe_ratio: float  # 夏普比率
     sortino_ratio: float  # 索提诺比率
+    
+    # 交易统计
+    win_rate: float  # 胜率
+    profit_loss_ratio: float  # 盈亏比
+    total_trades: int  # 总交易次数
+    winning_trades: int  # 盈利交易数
+    losing_trades: int  # 亏损交易数
+    avg_win: float  # 平均盈利
+    avg_loss: float  # 平均亏损
+    avg_holding_days: float  # 平均持有天数
+    turnover_rate: float  # 换手率
 
     # 进阶指标
     calmar_ratio: float = 0.0  # Calmar 比率
@@ -42,17 +53,6 @@ class BacktestMetrics:
     tracking_error: float = 0.0  # 跟踪误差
     alpha: float = 0.0  # Alpha
     beta: float = 0.0  # Beta
-
-    # 交易统计
-    win_rate: float  # 胜率
-    profit_loss_ratio: float  # 盈亏比
-    total_trades: int  # 总交易次数
-    winning_trades: int  # 盈利交易数
-    losing_trades: int  # 亏损交易数
-    avg_win: float  # 平均盈利
-    avg_loss: float  # 平均亏损
-    avg_holding_days: float  # 平均持有天数
-    turnover_rate: float  # 换手率
 
     # 额外统计
     consecutive_wins: int = 0  # 最大连续盈利
