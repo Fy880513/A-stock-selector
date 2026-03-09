@@ -23,6 +23,8 @@ class StockScore:
     technical_score: float
     capital_flow_score: float
     hotspot_score: float
+    ml_score: float  # 机器学习预测得分
+    ml_confidence: str  # 机器学习预测置信度
     signal_count: int  # 技术指标信号数量
     pass_threshold: bool  # 是否通过基本面门槛
     rank: int = 0  # 排名
@@ -33,7 +35,13 @@ class Scorer:
 
     def __init__(self):
         self.config = STOCK_SELECTION_CONFIG
-        self.weights = self.config["weights"]
+        self.weights = self.config.get("weights", {
+            "fundamental": 0.25,      # 基本面 25%
+            "technical": 0.30,        # 技术面 30%
+            "capital_flow": 0.20,     # 资金面 20%
+            "hotspot": 0.20,          # 热点面 20%
+            "ml": 0.05                # ML 预测 5%（辅助参考）
+        })
 
     def calculate_total_score(
         self,
@@ -41,6 +49,7 @@ class Scorer:
         technical_score: float,
         capital_flow_score: float,
         hotspot_score: float,
+        ml_score: float = 50.0,
     ) -> float:
         """
         计算综合得分
@@ -52,7 +61,8 @@ class Scorer:
             fundamental_score * self.weights["fundamental"] +
             technical_score * self.weights["technical"] +
             capital_flow_score * self.weights["capital_flow"] +
-            hotspot_score * self.weights["hotspot"]
+            hotspot_score * self.weights["hotspot"] +
+            ml_score * self.weights.get("ml", 0.05)
         )
         return round(total, 2)
 
@@ -64,6 +74,7 @@ class Scorer:
         technical_data: Dict[str, float],
         capital_flow_data: Dict[str, float],
         hotspot_data: Dict[str, float],
+        ml_data: Optional[Dict[str, float]] = None,
     ) -> StockScore:
         """
         创建股票得分对象
@@ -75,6 +86,7 @@ class Scorer:
             technical_data: 技术面得分数据
             capital_flow_data: 资金面得分数据
             hotspot_data: 热点面得分数据
+            ml_data: 机器学习预测数据
 
         Returns:
             StockScore: 股票得分对象
@@ -83,12 +95,15 @@ class Scorer:
         technical_score = technical_data.get("technical_score", 50.0)
         capital_flow_score = capital_flow_data.get("capital_flow_score", 50.0)
         hotspot_score = hotspot_data.get("hotspot_score", 50.0)
+        ml_score = ml_data.get("ml_score", 50.0) if ml_data else 50.0
+        ml_confidence = ml_data.get("ml_confidence", "中") if ml_data else "中"
 
         total_score = self.calculate_total_score(
             fundamental_score,
             technical_score,
             capital_flow_score,
             hotspot_score,
+            ml_score,
         )
 
         return StockScore(
@@ -99,6 +114,8 @@ class Scorer:
             technical_score=round(technical_score, 2),
             capital_flow_score=round(capital_flow_score, 2),
             hotspot_score=round(hotspot_score, 2),
+            ml_score=round(ml_score, 2),
+            ml_confidence=ml_confidence,
             signal_count=technical_data.get("signal_count", 0),
             pass_threshold=fundamental_data.get("pass_threshold", False),
         )
@@ -181,6 +198,8 @@ class Scorer:
                 "technical_score": s.technical_score,
                 "capital_flow_score": s.capital_flow_score,
                 "hotspot_score": s.hotspot_score,
+                "ml_score": s.ml_score,
+                "ml_confidence": s.ml_confidence,
                 "signal_count": s.signal_count,
                 "rank": s.rank,
             })

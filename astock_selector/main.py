@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
+
 from config.settings import OUTPUT_DIR
 from selector.screener import get_screener
 from backtest.engine import create_backtest_engine
@@ -306,7 +308,8 @@ def show_dragon_stocks(board_name: Optional[str] = None):
         print("\n【龙头切换分析】")
         switch_info = strategy.find_dragon_switch(board_name)
         if switch_info.get("switch_signal"):
-            print(f"⚠️ 龙头切换信号：{switch_info.get('analysis')}")
+            confidence = switch_info.get("confidence", "低")
+            print(f"⚠️ 龙头切换信号：{switch_info.get('analysis')} (置信度：{confidence})")
         else:
             print(f"✓ {switch_info.get('analysis')}")
 
@@ -770,10 +773,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # 导入 pandas（延迟导入）
-    global pd
-    import pandas as pd
 
     # 处理不同模式
     if args.backtest:
