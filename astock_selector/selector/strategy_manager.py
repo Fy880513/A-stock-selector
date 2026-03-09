@@ -5,11 +5,13 @@
 支持多种策略模式：
 - 单一策略：仅使用原有综合评分、龙头战法、ML 选股等
 - 组合策略：多个策略加权融合
+- 自定义权重：用户可根据市场环境调整各策略权重
 """
 import pandas as pd
-from typing import Dict, List, Optional, Set
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass, field
 from enum import Enum
+from datetime import datetime
 
 from utils.logger import get_logger
 
@@ -33,6 +35,8 @@ class StrategyConfig:
     weight: float = 1.0  # 策略权重
     enabled: bool = True
     params: Optional[Dict] = None  # 策略特定参数
+    min_score: float = 0.0  # 最低得分要求
+    max_score: float = 100.0  # 最高得分要求
 
 
 @dataclass
@@ -47,11 +51,8 @@ class StockCandidate:
     seat_score: float = 50.0  # 席位评分
     final_score: float = 50.0  # 最终得分
     rank: int = 0
-    selected_strategies: List[str] = None
-
-    def __post_init__(self):
-        if self.selected_strategies is None:
-            self.selected_strategies = []
+    selected_strategies: List[str] = field(default_factory=list)
+    selection_reasons: List[str] = field(default_factory=list)  # 入选理由
 
 
 class StrategyManager:
@@ -66,6 +67,33 @@ class StrategyManager:
             "ml": 0.10,
             "seat": 0.10,
         }
+        # 市场环境配置（用于动态调整权重）
+        self.market_condition = "normal"  # bull/bear/normal/volatile
+
+    def set_market_condition(self, condition: str):
+        """
+        设置市场环境，自动调整权重
+
+        Args:
+            condition: 市场环境 (bull/bear/normal/volatile)
+        """
+        self.market_condition = condition
+        logger.info(f"市场环境设置为：{condition}")
+
+        # 根据市场环境自动调整权重
+        if condition == "bull":  # 牛市：增加激进策略权重
+            self.default_weights["dragon"] = 0.35
+            self.default_weights["limit_up"] = 0.20
+            self.default_weights["comprehensive"] = 0.30
+        elif condition == "bear":  # 熊市：增加稳健策略权重
+            self.default_weights["comprehensive"] = 0.60
+            self.default_weights["dragon"] = 0.15
+            self.default_weights["limit_up"] = 0.05
+        elif condition == "volatile":  # 震荡市：平衡配置
+            self.default_weights["comprehensive"] = 0.40
+            self.default_weights["dragon"] = 0.25
+            self.default_weights["ml"] = 0.20
+        # normal: 使用默认权重
 
     def add_strategy(self, name: str, config: StrategyConfig):
         """添加策略"""
@@ -386,6 +414,112 @@ class StrategyManager:
         config = self.get_preset_config(preset_name)
         self.strategies = config
         logger.info(f"加载预设策略：{preset_name}")
+
+    def set_custom_weights(
+        self,
+        comprehensive: float = 0.40,
+        dragon: float = 0.25,
+        limit_up: float = 0.15,
+        ml: float = 0.10,
+        seat: float = 0.10,
+    ):
+        """
+        自定义策略权重
+
+        Args:
+            comprehensive: 综合评分权重
+            dragon: 龙头战法权重
+            limit_up: 涨停板权重
+            ml: ML 选股权重
+            seat: 龙虎榜席位权重
+        """
+        total = comprehensive + dragon + limit_up + ml + seat
+        if abs(total - 1.0) > 0.01:
+            logger.warning(f"权重总和为{total:.2f}，已归一化为 1.0")
+            comprehensive /= total
+            dragon /= total
+            limit_up /= total
+            ml /= total
+            seat /= total
+
+        self.strategies = {
+            "comprehensive": StrategyConfig(
+                mode=StrategyMode.COMPREHENSIVE,
+                weight=comprehensive,
+                enabled=comprehensive > 0,
+            ),
+            "dragon": StrategyConfig(
+                mode=StrategyMode.DRAGON,
+                weight=dragon,
+                enabled=dragon > 0,
+            ),
+            "limit_up": StrategyConfig(
+                mode=StrategyMode.LIMIT_UP,
+                weight=limit_up,
+                enabled=limit_up > 0,
+            ),
+            "ml": StrategyConfig(
+                mode=StrategyMode.ML,
+                weight=ml,
+                enabled=ml > 0,
+            ),
+            "seat": StrategyConfig(
+                mode=StrategyMode.SEAT,
+                weight=seat,
+                enabled=seat > 0,
+            ),
+        }
+        logger.info(f"设置自定义权重：综合={comprehensive:.2f}, 龙头={dragon:.2f}, "
+                    f"涨停={limit_up:.2f}, ML={ml:.2f}, 席位={seat:.2f}")
+
+    def generate_selection_reasons(self, candidate: StockCandidate) -> List[str]:
+        """
+        生成选股理由
+
+        Args:
+            candidate: 股票候选
+
+        Returns:
+            List[str]: 选股理由列表
+        """
+        reasons = []
+
+        # 综合评分高
+        if candidate.comprehensive_score >= 75:
+            reasons.append(f"综合评分优秀 ({candidate.comprehensive_score:.1f}分)")
+        elif candidate.comprehensive_score >= 60:
+            reasons.append(f"综合评分良好 ({candidate.comprehensive_score:.1f}分)")
+
+        # 龙头股特征
+        if candidate.dragon_score >= 80:
+            reasons.append("板块龙头，连板数高")
+        elif candidate.dragon_score >= 65:
+            reasons.append("板块强势股")
+
+        # 涨停强度
+        if candidate.limit_up_score >= 80:
+            reasons.append("涨停强度强，封单充足")
+        elif candidate.limit_up_score >= 65:
+            reasons.append("涨停强度中等")
+
+        # ML 预测
+        if candidate.ml_score >= 75:
+            reasons.append("ML 模型预测收益高")
+        elif candidate.ml_score >= 60:
+            reasons.append("ML 模型预测正向收益")
+
+        # 龙虎榜席位
+        if candidate.seat_score >= 80:
+            reasons.append("龙虎榜机构/北向买入")
+        elif candidate.seat_score >= 65:
+            reasons.append("龙虎榜席位良好")
+
+        # 多策略共振
+        if len(candidate.selected_strategies) >= 3:
+            reasons.append(f"多策略共振 ({len(candidate.selected_strategies)}个策略推荐)")
+
+        candidate.selection_reasons = reasons
+        return reasons
 
 
 def create_strategy_manager() -> StrategyManager:

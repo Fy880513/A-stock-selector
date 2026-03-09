@@ -2,10 +2,15 @@
 风险监控模块
 
 监控持仓股票的风险，包括止损止盈、技术破位、资金流出等
+支持动态止损止盈：
+- 基于波动率调整止损幅度
+- 基于持仓时间调整止盈点
+- 移动止盈（追踪止盈）
 """
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime, timedelta
 
 from config.trading_config import RISK_CONFIG, TRADING_CONFIG
 from position.analyzer import StockAnalysis
@@ -29,6 +34,7 @@ class RiskType(Enum):
     MA_BREAKDOWN = "ma_breakdown"    # 均线破位
     CAPITAL_OUTFLOW = "capital_outflow"  # 资金流出
     TECHNICAL_WEAK = "technical_weak"    # 技术面走弱
+    TRAIL_STOP = "trail_stop"        # 移动止盈
 
 
 @dataclass
@@ -51,6 +57,125 @@ class RiskMonitor:
         self.stop_loss_ratio = TRADING_CONFIG.get("stop_loss_ratio", 0.08)
         self.stop_profit_ratio = TRADING_CONFIG.get("stop_profit_ratio", 0.20)
         self.warning_threshold = RISK_CONFIG.get("stop_loss_warning_threshold", 0.05)
+        self.trail_stop_ratio = TRADING_CONFIG.get("trail_stop_ratio", 0.10)
+
+        # 波动率配置
+        self.volatility_multiplier = 1.5  # 波动率乘数
+        self.base_atr = 0.03  # 基准 ATR（3%）
+
+        # 持仓时间配置
+        self.holding_periods = [
+            (1, 0.10),    # 1 天内：止盈 10%
+            (3, 0.15),    # 3 天内：止盈 15%
+            (5, 0.20),    # 5 天内：止盈 20%
+            (10, 0.25),   # 10 天内：止盈 25%
+            (20, 0.30),   # 20 天内：止盈 30%
+        ]
+
+    def calculate_dynamic_stop_loss(
+        self,
+        current_price: float,
+        atr: Optional[float] = None,
+        volatility: Optional[float] = None,
+    ) -> float:
+        """
+        计算动态止损价（基于波动率/ATR）
+
+        Args:
+            current_price: 当前价格
+            atr: 平均真实波幅（ATR）
+            volatility: 波动率
+
+        Returns:
+            float: 动态止损价
+        """
+        if atr:
+            # 使用 ATR 计算止损
+            stop_loss_price = current_price - (atr * self.volatility_multiplier)
+        elif volatility:
+            # 使用波动率计算止损
+            stop_loss_price = current_price * (1 - volatility * self.volatility_multiplier)
+        else:
+            # 使用固定比例
+            stop_loss_price = current_price * (1 - self.stop_loss_ratio)
+
+        return max(0, stop_loss_price)
+
+    def calculate_dynamic_stop_profit(
+        self,
+        cost_price: float,
+        holding_days: int,
+        current_price: Optional[float] = None,
+    ) -> float:
+        """
+        计算动态止盈价（基于持仓时间）
+
+        Args:
+            cost_price: 成本价
+            holding_days: 持仓天数
+            current_price: 当前价格（用于移动止盈）
+
+        Returns:
+            float: 动态止盈价
+        """
+        # 根据持仓时间确定止盈比例
+        target_profit = self.stop_profit_ratio
+        for days, profit in self.holding_periods:
+            if holding_days >= days:
+                target_profit = profit
+                break
+
+        # 基础止盈价
+        stop_profit_price = cost_price * (1 + target_profit)
+
+        # 如果当前已有盈利，启用移动止盈
+        if current_price and current_price > cost_price * 1.1:  # 盈利超过 10%
+            profit_ratio = (current_price - cost_price) / current_price
+            if profit_ratio > target_profit:
+                # 启用回撤止盈（从最高点回撤一定比例）
+                stop_profit_price = current_price * (1 - self.trail_stop_ratio)
+
+        return stop_profit_price
+
+    def check_trail_stop(
+        self,
+        analysis: StockAnalysis,
+        highest_price: float,
+    ) -> Optional[RiskWarning]:
+        """
+        检查移动止盈（追踪止盈）
+
+        Args:
+            analysis: 股票分析
+            highest_price: 持仓期间最高价
+
+        Returns:
+            RiskWarning 或 None
+        """
+        current_price = analysis.current_price
+        cost_price = analysis.cost_price
+
+        # 只有盈利超过 15% 才启用移动止盈
+        if (current_price - cost_price) / cost_price < 0.15:
+            return None
+
+        # 计算回撤比例
+        drawdown = (highest_price - current_price) / highest_price
+
+        # 触发移动止盈
+        if drawdown >= self.trail_stop_ratio:
+            return RiskWarning(
+                ts_code=analysis.ts_code,
+                stock_name=analysis.stock_name,
+                risk_type=RiskType.TRAIL_STOP,
+                risk_level=RiskLevel.WARNING,
+                message=f"从高点回撤 {drawdown:.2%}，触发移动止盈",
+                current_price=current_price,
+                trigger_price=highest_price * (1 - self.trail_stop_ratio),
+                suggestion="建议减仓 50% 锁定利润",
+            )
+
+        return None
 
     def check_stop_loss(
         self,
