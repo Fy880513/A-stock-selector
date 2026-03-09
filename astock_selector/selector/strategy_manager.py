@@ -37,6 +37,8 @@ class StrategyConfig:
     params: Optional[Dict] = None  # 策略特定参数
     min_score: float = 0.0  # 最低得分要求
     max_score: float = 100.0  # 最高得分要求
+    performance: float = 0.0  # 策略性能指标
+    last_updated: str = ""  # 最后更新时间
 
 
 @dataclass
@@ -55,6 +57,18 @@ class StockCandidate:
     selection_reasons: List[str] = field(default_factory=list)  # 入选理由
 
 
+@dataclass
+class RotationConfig:
+    """策略轮动配置"""
+    enabled: bool = True  # 是否启用轮动
+    evaluation_period: int = 30  # 评估周期（天）
+    top_n: int = 3  # 选择前 N 个策略
+    performance_metric: str = "sharpe_ratio"  # 性能指标
+    min_weight: float = 0.1  # 最小权重
+    max_weight: float = 0.6  # 最大权重
+    adjustment_factor: float = 0.1  # 调整因子
+
+
 class StrategyManager:
     """策略管理器"""
 
@@ -69,6 +83,12 @@ class StrategyManager:
         }
         # 市场环境配置（用于动态调整权重）
         self.market_condition = "normal"  # bull/bear/normal/volatile
+        # 策略轮动配置
+        self.rotation_config = RotationConfig()
+        # 策略历史性能
+        self.strategy_performance = {}
+        # 轮动历史
+        self.rotation_history = []
 
     def set_market_condition(self, condition: str):
         """
@@ -520,6 +540,134 @@ class StrategyManager:
 
         candidate.selection_reasons = reasons
         return reasons
+
+    def update_strategy_performance(self, strategy_name: str, performance: float):
+        """
+        更新策略性能（带衰减）
+
+        Args:
+            strategy_name: 策略名称
+            performance: 性能指标值
+        """
+        # 获取旧性能并应用衰减
+        old_perf = self.strategy_performance.get(strategy_name, {}).get("performance", 0)
+        decay_factor = 0.95  # 每月衰减 5%
+
+        # 新性能 = 旧性能 * 衰减 + 新性能 * (1 - 衰减)
+        if old_perf > 0:
+            performance = old_perf * decay_factor + performance * (1 - decay_factor)
+
+        self.strategy_performance[strategy_name] = {
+            "performance": performance,
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        # 更新策略配置中的性能
+        if strategy_name in self.strategies:
+            self.strategies[strategy_name].performance = performance
+            self.strategies[strategy_name].last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def run_strategy_rotation(self):
+        """
+        执行策略轮动
+
+        基于历史性能选择表现最好的策略组合
+        """
+        if not self.rotation_config.enabled:
+            logger.info("策略轮动已禁用")
+            return
+
+        # 获取所有策略的性能（新策略给予基础分 50，避免永远无法被选中）
+        strategy_perfs = []
+        for strategy_name, config in self.strategies.items():
+            if config.enabled:
+                perf_data = self.strategy_performance.get(strategy_name, {})
+                if perf_data:
+                    perf = perf_data.get("performance", 50)
+                else:
+                    # 新策略没有性能数据，给予平均分数
+                    perf = 50.0
+                strategy_perfs.append((strategy_name, perf))
+
+        if not strategy_perfs:
+            logger.warning("没有启用的策略，无法执行轮动")
+            return
+
+        # 按性能排序
+        strategy_perfs.sort(key=lambda x: x[1], reverse=True)
+
+        # 选择前 N 个策略
+        top_strategies = strategy_perfs[:self.rotation_config.top_n]
+        logger.info(f"轮动选择策略：{[s[0] for s in top_strategies]}")
+
+        # 计算新权重
+        total_perf = sum(p[1] for p in top_strategies)
+        new_weights = {}
+
+        if total_perf > 0:
+            # 基于性能分配权重
+            for strategy_name, perf in top_strategies:
+                weight = (perf / total_perf) * (1 - (self.rotation_config.top_n - 1) * self.rotation_config.min_weight)
+                weight = max(self.rotation_config.min_weight, min(self.rotation_config.max_weight, weight))
+                new_weights[strategy_name] = weight
+        else:
+            # 等权重分配
+            weight = 1.0 / len(top_strategies)
+            for strategy_name, _ in top_strategies:
+                new_weights[strategy_name] = weight
+
+        # 归一化权重
+        total_weight = sum(new_weights.values())
+        for strategy_name in new_weights:
+            new_weights[strategy_name] /= total_weight
+
+        # 更新权重
+        for strategy_name, weight in new_weights.items():
+            if strategy_name in self.strategies:
+                old_weight = self.strategies[strategy_name].weight
+                # 平滑过渡
+                new_weight = old_weight * (1 - self.rotation_config.adjustment_factor) + weight * self.rotation_config.adjustment_factor
+                self.strategies[strategy_name].weight = new_weight
+                logger.info(f"调整策略 {strategy_name} 权重：{old_weight:.2f} → {new_weight:.2f}")
+
+        # 记录轮动历史
+        self.rotation_history.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "selected_strategies": [s[0] for s in top_strategies],
+            "weights": new_weights,
+            "market_condition": self.market_condition
+        })
+
+    def set_rotation_config(self, config: RotationConfig):
+        """
+        设置轮动配置
+
+        Args:
+            config: 轮动配置
+        """
+        self.rotation_config = config
+        logger.info(f"更新轮动配置：{config}")
+
+    def get_rotation_history(self, limit: int = 10) -> List[Dict]:
+        """
+        获取轮动历史
+
+        Args:
+            limit: 历史记录数量
+
+        Returns:
+            List[Dict]: 轮动历史记录
+        """
+        return self.rotation_history[-limit:]
+
+    def get_strategy_performance(self) -> Dict[str, Dict]:
+        """
+        获取策略性能
+
+        Returns:
+            Dict[str, Dict]: 策略性能字典
+        """
+        return self.strategy_performance
 
 
 def create_strategy_manager() -> StrategyManager:

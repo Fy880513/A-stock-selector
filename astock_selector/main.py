@@ -59,8 +59,8 @@ def select_stocks(
     print()
 
     # 表格显示
-    print(f"{'排名':<6}{'代码':<12}{'名称':<12}{'得分':<8}{'买入价':<10}{'仓位':<10}{'止损':<10}{'止盈':<10}")
-    print("-" * 78)
+    print(f"{'排名':<6}{'代码':<12}{'名称':<12}{'得分':<8}{'买入价':<12}{'仓位':<10}{'止损':<12}{'止盈':<12}")
+    print("-" * 82)
 
     for stock in stocks:
         rank = stock.get("rank", 0)
@@ -72,7 +72,7 @@ def select_stocks(
         stop_loss = stock.get("stop_loss", 0)
         stop_profit = stock.get("stop_profit", 0)
 
-        print(f"#{rank:<5}{ts_code:<12}{name:<12}{score:<8.1f}¥{buy_price:<9.2f}{position_ratio:<9.1f}%¥{stop_loss:<9.2f}¥{stop_profit:.2f}")
+        print(f"#{rank:<5}{ts_code:<12}{name:<12}{score:<8.1f}{buy_price:<12.2f}{position_ratio:<9.1f}%{stop_loss:<12.2f}{stop_profit:.2f}")
 
     print()
 
@@ -608,6 +608,69 @@ def select_stocks_with_strategy(
     print(f"{'='*60}\n")
 
 
+def run_strategy_rotation(market_condition: str = "normal"):
+    """
+    执行策略轮动
+
+    Args:
+        market_condition: 市场环境 (bull/bear/normal/volatile)
+    """
+    print(f"\n{'='*60}")
+    print("A 股选股系统 - 策略轮动")
+    print(f"{'='*60}")
+    print(f"市场环境：{market_condition}")
+    print(f"{'='*60}\n")
+
+    from selector.strategy_manager import create_strategy_manager
+
+    # 创建策略管理器
+    manager = create_strategy_manager()
+
+    # 设置市场环境
+    manager.set_market_condition(market_condition)
+
+    # 加载平衡型策略作为起点
+    manager.load_preset("balanced")
+
+    print("【当前策略配置】")
+    for name, config in manager.strategies.items():
+        if config.enabled:
+            perf = manager.strategy_performance.get(name, {}).get("performance", 0)
+            print(f"  {name}: 权重={config.weight:.2%}, 性能={perf:.2f}")
+
+    # 模拟策略性能（实际使用中应该从回测或实盘获取）
+    print("\n【模拟策略性能更新】")
+    import random
+    for name in manager.get_enabled_strategies():
+        # 模拟性能（夏普比率）
+        simulated_perf = random.uniform(0.5, 2.5)
+        manager.update_strategy_performance(name, simulated_perf)
+        print(f"  {name}: {simulated_perf:.2f}")
+
+    # 执行策略轮动
+    print("\n【执行策略轮动】")
+    manager.run_strategy_rotation()
+
+    # 显示轮动后配置
+    print("\n【轮动后策略配置】")
+    for name, config in manager.strategies.items():
+        if config.enabled:
+            print(f"  {name}: 权重={config.weight:.2%}")
+
+    # 显示轮动历史
+    history = manager.get_rotation_history(1)
+    if history:
+        print("\n【最近轮动记录】")
+        last = history[0]
+        print(f"  时间：{last['timestamp']}")
+        print(f"  选中策略：{', '.join(last['selected_strategies'])}")
+        print(f"  市场环境：{last['market_condition']}")
+
+    print(f"\n{'='*60}")
+    print("提示：实际使用时，策略性能应从回测或实盘数据中计算获取。")
+    print(f"{'='*60}\n")
+
+
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(
@@ -623,6 +686,7 @@ def main():
   %(prog)s --limit-up  # 查看涨停板统计
   %(prog)s --limit-up-detail --code 000001  # 查看个股涨停强度
   %(prog)s --seat  # 查看龙虎榜席位分析
+  %(prog)s --rotation --market-condition bull  # 执行策略轮动（牛市模式）
 
 策略模式:
   %(prog)s --strategy comprehensive  # 综合评分（原有系统）
@@ -765,6 +829,20 @@ def main():
         help="启用 ML 评分（与 --strategy 联用）",
     )
 
+    # 策略轮动参数
+    parser.add_argument(
+        "--rotation",
+        action="store_true",
+        help="执行策略轮动",
+    )
+    parser.add_argument(
+        "--market-condition",
+        type=str,
+        choices=["bull", "bear", "normal", "volatile"],
+        default="normal",
+        help="市场环境设置（与 --rotation 联用）",
+    )
+
     # 其他参数
     parser.add_argument(
         "--verbose", "-v",
@@ -775,7 +853,9 @@ def main():
     args = parser.parse_args()
 
     # 处理不同模式
-    if args.backtest:
+    if args.rotation:
+        run_strategy_rotation(args.market_condition)
+    elif args.backtest:
         end_date = args.end or datetime.now().strftime("%Y%m%d")
         run_backtest(
             args.start,
